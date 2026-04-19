@@ -507,7 +507,7 @@ fn verify_bundle(
     if skip_tlog {
         policy = policy.skip_tlog();
     }
-    let result = sigstore_verify::verify(artifact, bundle, &policy, &trusted_root)?;
+    let result = sigstore_verify::verify(artifact, bundle, &policy, trusted_root)?;
     if !result.success {
         return Err(AttestationError::Verification(
             "sigstore verification returned false".to_string(),
