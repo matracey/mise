@@ -53,7 +53,8 @@ enum VerificationStatus {
 /// exist but aren't in a sigstore-verifiable format.
 fn is_slsa_format_issue(e: &mise_sigstore::AttestationError) -> bool {
     match e {
-        mise_sigstore::AttestationError::NoAttestations => true,
+        mise_sigstore::AttestationError::NoAttestations
+        | mise_sigstore::AttestationError::UnsupportedFormat(_) => true,
         mise_sigstore::AttestationError::Verification(msg)
         | mise_sigstore::AttestationError::Sigstore(msg) => {
             msg.contains("does not contain valid attestations")
@@ -1924,8 +1925,7 @@ mod tests {
 
     #[test]
     fn test_is_slsa_format_issue_invalid_format() {
-        // This is the exact error from BuildKit raw provenance files parsed line-by-line
-        let err = mise_sigstore::AttestationError::Verification(
+        let err = mise_sigstore::AttestationError::UnsupportedFormat(
             "File does not contain valid attestations or SLSA provenance".to_string(),
         );
         assert!(is_slsa_format_issue(&err));

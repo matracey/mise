@@ -5,8 +5,9 @@ use base64::Engine;
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue, USER_AGENT};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use sigstore_verify::VerificationPolicy;
+use sigstore_verify::trust_root::{SIGSTORE_PRODUCTION_TRUSTED_ROOT, TrustedRoot};
 use sigstore_verify::types::{Bundle, DerPublicKey, SignatureBytes};
-use sigstore_verify::{VerificationPolicy, trust_root::TrustedRoot};
 use thiserror::Error;
 use tokio::io::AsyncReadExt;
 
@@ -19,6 +20,8 @@ pub enum AttestationError {
     Api(String),
     #[error("Verification failed: {0}")]
     Verification(String),
+    #[error("Unsupported attestation format: {0}")]
+    UnsupportedFormat(String),
     #[error("No attestations found")]
     NoAttestations,
     #[error("Invalid digest format: {0}")]
@@ -364,7 +367,7 @@ async fn verify_github_attestation_inner(
     }
 
     let artifact = tokio::fs::read(artifact_path).await?;
-    let trusted_root = TrustedRoot::production()?;
+    let trusted_root = production_trusted_root()?;
     verify_attestation_bundles(&attestations, &artifact, signer_workflow, &trusted_root)
 }
 
@@ -375,7 +378,7 @@ pub async fn verify_cosign_signature(
     let content = tokio::fs::read_to_string(sig_or_bundle_path).await?;
     let bundle = Bundle::from_json(&content)?;
     let artifact = tokio::fs::read(artifact_path).await?;
-    let trusted_root = TrustedRoot::production()?;
+    let trusted_root = production_trusted_root()?;
     verify_bundle(&artifact, &bundle, None, true, &trusted_root)?;
     Ok(true)
 }
@@ -387,7 +390,7 @@ pub async fn verify_cosign_signature_with_key(
 ) -> Result<bool> {
     let key_pem = tokio::fs::read_to_string(public_key_path).await?;
     let public_key = DerPublicKey::from_pem(&key_pem)?;
-    let trusted_root = TrustedRoot::production()?;
+    let trusted_root = production_trusted_root()?;
 
     let bundle = tokio::fs::read_to_string(sig_or_bundle_path)
         .await
@@ -401,7 +404,12 @@ pub async fn verify_cosign_signature_with_key(
             &public_key,
             &trusted_root,
         )?;
-        return Ok(result.success);
+        if !result.success {
+            return Err(AttestationError::Verification(
+                "sigstore verification returned false".to_string(),
+            ));
+        }
+        return Ok(true);
     }
 
     let artifact = tokio::fs::read(artifact_path).await?;
@@ -417,7 +425,7 @@ pub async fn verify_slsa_provenance(
 ) -> Result<bool> {
     let artifact = tokio::fs::read(artifact_path).await?;
     let content = tokio::fs::read_to_string(provenance_path).await?;
-    let trusted_root = TrustedRoot::production()?;
+    let trusted_root = production_trusted_root()?;
     let mut errors = Vec::new();
 
     for line in content
@@ -427,32 +435,64 @@ pub async fn verify_slsa_provenance(
     {
         match Bundle::from_json(line) {
             Ok(bundle) => match verify_bundle(&artifact, &bundle, None, true, &trusted_root) {
-                Ok(()) => {
-                    verify_min_slsa_level(&bundle, min_level)?;
-                    return Ok(true);
-                }
-                Err(e) => errors.push(e.to_string()),
+                Ok(()) => match verify_min_slsa_level(&bundle, min_level) {
+                    Ok(()) => return Ok(true),
+                    Err(e) => errors.push(e),
+                },
+                Err(e) => errors.push(e),
             },
-            Err(e) => errors.push(e.to_string()),
+            Err(e) => errors.push(AttestationError::UnsupportedFormat(e.to_string())),
         }
     }
 
     if content.trim_start().starts_with('{') {
         match Bundle::from_json(content.trim()) {
             Ok(bundle) => {
-                verify_bundle(&artifact, &bundle, None, true, &trusted_root)?;
-                verify_min_slsa_level(&bundle, min_level)?;
-                return Ok(true);
+                match verify_bundle(&artifact, &bundle, None, true, &trusted_root)
+                    .and_then(|_| verify_min_slsa_level(&bundle, min_level))
+                {
+                    Ok(()) => return Ok(true),
+                    Err(e) => errors.push(e),
+                }
             }
-            Err(e) => errors.push(e.to_string()),
+            Err(e) => errors.push(AttestationError::UnsupportedFormat(e.to_string())),
         }
     }
 
-    Err(AttestationError::Verification(
-        errors.into_iter().last().unwrap_or_else(|| {
-            "File does not contain valid attestations or SLSA provenance".to_string()
-        }),
-    ))
+    collapse_slsa_errors(errors, || {
+        "File does not contain valid attestations or SLSA provenance".to_string()
+    })
+}
+
+fn collapse_slsa_errors(
+    errors: Vec<AttestationError>,
+    default: impl FnOnce() -> String,
+) -> Result<bool> {
+    let unsupported_format = errors
+        .iter()
+        .all(|error| matches!(error, AttestationError::UnsupportedFormat(_)));
+    let message = join_error_strings(
+        errors.into_iter().map(|error| error.to_string()).collect(),
+        default,
+    );
+    Err(if unsupported_format {
+        AttestationError::UnsupportedFormat(message)
+    } else {
+        AttestationError::Verification(message)
+    })
+}
+
+fn join_error_strings(errors: Vec<String>, default: impl FnOnce() -> String) -> String {
+    let mut errors = errors
+        .into_iter()
+        .filter(|error| !error.trim().is_empty())
+        .collect::<Vec<_>>();
+    errors.dedup();
+    if errors.is_empty() {
+        default()
+    } else {
+        errors.join("; ")
+    }
 }
 
 fn verify_attestation_bundles(
@@ -479,12 +519,10 @@ fn verify_attestation_bundles(
         }
     }
 
-    Err(AttestationError::Verification(
-        errors
-            .into_iter()
-            .last()
-            .unwrap_or_else(|| "No valid attestations found".to_string()),
-    ))
+    Err(AttestationError::Verification(join_error_strings(
+        errors,
+        || "No valid attestations found".to_string(),
+    )))
 }
 
 fn is_snappy_content_type(response: &reqwest::Response) -> bool {
@@ -519,6 +557,10 @@ fn verify_bundle(
     Ok(())
 }
 
+fn production_trusted_root() -> Result<TrustedRoot> {
+    Ok(TrustedRoot::from_json(SIGSTORE_PRODUCTION_TRUSTED_ROOT)?)
+}
+
 fn verify_signer_workflow_identity(
     identity: Option<&str>,
     signer_workflow: Option<&str>,
@@ -531,7 +573,7 @@ fn verify_signer_workflow_identity(
             "Workflow verification failed: expected '{expected}', found no certificate identity"
         )));
     };
-    if !identity.contains(expected) && !expected.contains(identity) {
+    if !identity.contains(expected) {
         return Err(AttestationError::Verification(format!(
             "Workflow verification failed: expected '{expected}', found certificate identity: {identity:?}"
         )));
@@ -544,7 +586,11 @@ fn verify_min_slsa_level(bundle: &Bundle, min_level: u8) -> Result<()> {
         sigstore_verify::types::SignatureContent::DsseEnvelope(envelope) => {
             envelope.decode_payload()
         }
-        _ => Vec::new(),
+        _ => {
+            return Err(AttestationError::UnsupportedFormat(
+                "SLSA provenance must be a DSSE envelope".to_string(),
+            ));
+        }
     };
     let statement: serde_json::Value = serde_json::from_slice(&payload).map_err(|e| {
         AttestationError::Verification(format!("Failed to parse SLSA payload: {e}"))
@@ -554,7 +600,7 @@ fn verify_min_slsa_level(bundle: &Bundle, min_level: u8) -> Result<()> {
         .and_then(|v| v.as_str())
         .unwrap_or_default();
     if !predicate_type.starts_with("https://slsa.dev/provenance/") {
-        return Err(AttestationError::Verification(format!(
+        return Err(AttestationError::UnsupportedFormat(format!(
             "Not an SLSA provenance predicate: {predicate_type}"
         )));
     }
@@ -645,5 +691,17 @@ mod tests {
             Some(".github/workflows/release.yml"),
         )
         .unwrap();
+    }
+
+    #[test]
+    fn signer_workflow_rejects_expected_containing_identity() {
+        let err = verify_signer_workflow_identity(
+            Some(".github/workflows/release.yml"),
+            Some("https://github.com/jdx/mise/.github/workflows/release.yml@refs/tags/v1.0.0"),
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert!(err.contains("Workflow verification failed"));
     }
 }
