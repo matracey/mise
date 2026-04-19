@@ -6,7 +6,7 @@ use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue, USER_AGENT};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sigstore_verify::VerificationPolicy;
-use sigstore_verify::trust_root::{SIGSTORE_PRODUCTION_TRUSTED_ROOT, TrustedRoot};
+use sigstore_verify::trust_root::TrustedRoot;
 use sigstore_verify::types::{Bundle, DerPublicKey, SignatureBytes};
 use thiserror::Error;
 use tokio::io::AsyncReadExt;
@@ -367,7 +367,7 @@ async fn verify_github_attestation_inner(
     }
 
     let artifact = tokio::fs::read(artifact_path).await?;
-    let trusted_root = production_trusted_root()?;
+    let trusted_root = production_trusted_root().await?;
     verify_attestation_bundles(&attestations, &artifact, signer_workflow, &trusted_root)
 }
 
@@ -378,7 +378,7 @@ pub async fn verify_cosign_signature(
     let content = tokio::fs::read_to_string(sig_or_bundle_path).await?;
     let bundle = Bundle::from_json(&content)?;
     let artifact = tokio::fs::read(artifact_path).await?;
-    let trusted_root = production_trusted_root()?;
+    let trusted_root = production_trusted_root().await?;
     verify_bundle(&artifact, &bundle, None, true, &trusted_root)?;
     Ok(true)
 }
@@ -390,7 +390,7 @@ pub async fn verify_cosign_signature_with_key(
 ) -> Result<bool> {
     let key_pem = tokio::fs::read_to_string(public_key_path).await?;
     let public_key = DerPublicKey::from_pem(&key_pem)?;
-    let trusted_root = production_trusted_root()?;
+    let trusted_root = production_trusted_root().await?;
 
     let bundle = tokio::fs::read_to_string(sig_or_bundle_path)
         .await
@@ -425,7 +425,7 @@ pub async fn verify_slsa_provenance(
 ) -> Result<bool> {
     let artifact = tokio::fs::read(artifact_path).await?;
     let content = tokio::fs::read_to_string(provenance_path).await?;
-    let trusted_root = production_trusted_root()?;
+    let trusted_root = production_trusted_root().await?;
     let mut errors = Vec::new();
 
     for line in content
@@ -557,8 +557,8 @@ fn verify_bundle(
     Ok(())
 }
 
-fn production_trusted_root() -> Result<TrustedRoot> {
-    Ok(TrustedRoot::from_json(SIGSTORE_PRODUCTION_TRUSTED_ROOT)?)
+async fn production_trusted_root() -> Result<TrustedRoot> {
+    Ok(TrustedRoot::production().await?)
 }
 
 fn verify_signer_workflow_identity(
