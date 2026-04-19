@@ -310,26 +310,7 @@ pub async fn verify_github_attestation(
     token: Option<&str>,
     signer_workflow: Option<&str>,
 ) -> Result<bool> {
-    verify_github_attestation_inner(artifact_path, owner, repo, token, signer_workflow, None).await
-}
-
-pub async fn verify_github_attestation_with_base_url(
-    artifact_path: &Path,
-    owner: &str,
-    repo: &str,
-    token: Option<&str>,
-    signer_workflow: Option<&str>,
-    base_url: &str,
-) -> Result<bool> {
-    verify_github_attestation_inner(
-        artifact_path,
-        owner,
-        repo,
-        token,
-        signer_workflow,
-        Some(base_url),
-    )
-    .await
+    verify_github_attestation_inner(artifact_path, owner, repo, token, signer_workflow).await
 }
 
 async fn verify_github_attestation_inner(
@@ -338,14 +319,10 @@ async fn verify_github_attestation_inner(
     repo: &str,
     token: Option<&str>,
     signer_workflow: Option<&str>,
-    base_url: Option<&str>,
 ) -> Result<bool> {
     let mut builder = AttestationClient::builder();
     if let Some(token) = token {
         builder = builder.github_token(token);
-    }
-    if let Some(base_url) = base_url {
-        builder = builder.base_url(base_url);
     }
     let client = builder.build()?;
     let digest = calculate_file_digest_async(artifact_path).await?;
