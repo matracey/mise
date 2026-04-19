@@ -613,3 +613,37 @@ async fn calculate_file_digest_async(path: &Path) -> Result<String> {
     }
     Ok(hex::encode(hasher.finalize()))
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn signer_workflow_requires_identity() {
+        let err = verify_signer_workflow_identity(None, Some(".github/workflows/release.yml"))
+            .unwrap_err()
+            .to_string();
+
+        assert!(err.contains("found no certificate identity"));
+    }
+
+    #[test]
+    fn signer_workflow_rejects_mismatch() {
+        let err = verify_signer_workflow_identity(
+            Some("https://github.com/jdx/mise/.github/workflows/ci.yml@refs/tags/v1.0.0"),
+            Some(".github/workflows/release.yml"),
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert!(err.contains("Workflow verification failed"));
+    }
+
+    #[test]
+    fn signer_workflow_accepts_match() {
+        verify_signer_workflow_identity(
+            Some("https://github.com/jdx/mise/.github/workflows/release.yml@refs/tags/v1.0.0"),
+            Some(".github/workflows/release.yml"),
+        )
+        .unwrap();
+    }
+}

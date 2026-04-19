@@ -54,7 +54,8 @@ enum VerificationStatus {
 fn is_slsa_format_issue(e: &mise_sigstore::AttestationError) -> bool {
     match e {
         mise_sigstore::AttestationError::NoAttestations => true,
-        mise_sigstore::AttestationError::Verification(msg) => {
+        mise_sigstore::AttestationError::Verification(msg)
+        | mise_sigstore::AttestationError::Sigstore(msg) => {
             msg.contains("does not contain valid attestations")
                 || msg.contains("No certificate found")
                 || msg.contains("neither DSSE envelope nor message signature")
