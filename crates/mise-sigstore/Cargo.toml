@@ -4,7 +4,9 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT"
 description = "Sigstore verification helpers for mise"
-publish = false
+documentation = "https://docs.rs/mise-sigstore"
+homepage = "https://github.com/jdx/mise"
+repository = "https://github.com/jdx/mise"
 
 [lib]
 name = "mise_sigstore"
