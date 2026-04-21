@@ -1,5 +1,39 @@
 # Changelog
 
+## [2026.4.19](https://github.com/jdx/mise/compare/v2026.4.18..v2026.4.19) - 2026-04-21
+
+### 🐛 Bug Fixes
+
+- **(cli)** retrieve token from github helper for `self-update` command by @sushichan044 in [#9259](https://github.com/jdx/mise/pull/9259)
+- **(github)** scope auth headers to API URLs by @risu729 in [#9271](https://github.com/jdx/mise/pull/9271)
+- **(vfox)** use github token for lua http requests by @jdx in [#9257](https://github.com/jdx/mise/pull/9257)
+
+### 📚 Documentation
+
+- add aube hero banner by @jdx in [#9265](https://github.com/jdx/mise/pull/9265)
+- add en.dev footer by @jdx in [#9267](https://github.com/jdx/mise/pull/9267)
+- implement landing page design by @jdx in [#9266](https://github.com/jdx/mise/pull/9266)
+
+### 📦️ Dependency Updates
+
+- lock file maintenance by @renovate[bot] in [#9268](https://github.com/jdx/mise/pull/9268)
+
+### Chore
+
+- **(release)** add en.dev sponsor blurb to release notes by @jdx in [#9272](https://github.com/jdx/mise/pull/9272)
+- bump communique to 1.0.1 by @jdx in [#9264](https://github.com/jdx/mise/pull/9264)
+
+### 📦 Aqua Registry Updates
+
+#### New Packages (2)
+
+- [`controlplaneio-fluxcd/flux-operator/flux-operator-mcp`](https://github.com/controlplaneio-fluxcd/flux-operator/flux-operator-mcp)
+- [`endevco/aube`](https://github.com/endevco/aube)
+
+#### Updated Packages (1)
+
+- [`graelo/pumas`](https://github.com/graelo/pumas)
+
 ## [2026.4.18](https://github.com/jdx/mise/compare/v2026.4.17..v2026.4.18) - 2026-04-19
 
 ### 🚀 Features
